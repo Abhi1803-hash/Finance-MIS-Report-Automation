@@ -1,0 +1,53 @@
+name: Monthly Finance MIS Report
+
+on:
+  schedule:
+    - cron: "30 3 1 * *"        # 09:00 IST on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Report month (YYYY-MM). Leave blank for last month."
+        required: false
+
+jobs:
+  build-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Resolve report month
+        id: month
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            echo "value=${{ github.event.inputs.month }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(date -d "$(date +%Y-%m-01) -1 month" +%Y-%m)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate data (replace with warehouse extract in production)
+        run: python src/generate_data.py --end-month ${{ steps.month.outputs.value }}
+
+      - name: Build report
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m src.pipeline --month ${{ steps.month.outputs.value }}
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-mis-${{ steps.month.outputs.value }}
+          path: |
+            reports/*.xlsx
+            reports/*.md
+            reports/*.svg
